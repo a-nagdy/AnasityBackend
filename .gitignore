@@ -1,0 +1,69 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build output
+dist/
+build/
+out/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+# Cache directories
+.npm
+.eslintcache
+.cache
+.parcel-cache
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage
+*.lcov
+.nyc_output
+
+# Compiled binary addons
+build/Release
+
+# IDE / editors
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+*.launch
+.settings/
+*.tmproj
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Serverless directories
+.serverless/
+
+# Misc
+.DS_Store
+.vercel
+.next
+*.tgz 
+
+
+Anasity-Ecommerce-API.postman_collection.json
