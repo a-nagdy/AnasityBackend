@@ -97,27 +97,41 @@ const setupRoutes = () => {
   });
 };
 
-// Initialize server
+// Check if we're in a Vercel serverless environment
+const isVercel = process.env.VERCEL === "1";
+
+// Initialize server (only for local development)
 const startServer = async () => {
   // First connect to the database
   const connected = await connectDB();
 
   // Set up routes regardless of connection status
-  // This allows the server to work even if DB connection fails temporarily
   setupRoutes();
 
-  // Start server
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    if (!connected) {
-      console.log(
-        "Warning: Server started but MongoDB connection failed. Some features may not work correctly."
-      );
-    }
-  });
+  // Only start the server if not in a serverless environment
+  if (!isVercel) {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      if (!connected) {
+        console.log(
+          "Warning: Server started but MongoDB connection failed. Some features may not work correctly."
+        );
+      }
+    });
+  }
 };
 
-// Start the server
-startServer();
+// For local development, start the server
+if (!isVercel) {
+  startServer();
+} else {
+  // For Vercel serverless, just connect to DB and set up routes
+  // (no need to explicitly start the server)
+  connectDB().then(() => {
+    setupRoutes();
+    console.log("Serverless mode: Routes configured");
+  });
+}
 
+// For Vercel serverless function
 export default app;
