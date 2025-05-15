@@ -1,13 +1,14 @@
 {
   "name": "anasity",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "index.js",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "npm install && npm install nodemon"
+    "build": "npm install && npm install nodemon",
+    "vercel-build": "echo 'Build step completed'"
   },
   "author": "Ahmed Nagy",
   "license": "ISC",
