@@ -42,11 +42,32 @@ const __dirname = path.dirname(__filename);
 // Set static folder
 app.use(express.static(path.join(__dirname, "public")));
 
-// MongoDB Connection
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.log("MongoDB Connection Error: ", err));
+// Verify if MongoDB URI is available
+if (!process.env.MONGODB_URI) {
+  console.error("FATAL ERROR: MONGODB_URI environment variable is not defined");
+  process.exit(1);
+}
+
+// MongoDB Connection with improved options for serverless
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000, // Timeout after 5 seconds
+      socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+      family: 4, // Use IPv4, skip trying IPv6
+      maxPoolSize: 10, // Maintain up to 10 socket connections
+    });
+    console.log("MongoDB Connected Successfully");
+  } catch (err) {
+    console.error("MongoDB Connection Error:", err.message);
+
+    // Don't crash the server if DB connection fails
+    // This allows API routes to send error responses instead of crashing
+  }
+};
+
+// Connect to MongoDB
+connectDB();
 
 // API Routes
 app.use("/api/products", productRoutes);
