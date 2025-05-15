@@ -42,9 +42,11 @@ const __dirname = path.dirname(__filename);
 // Set static folder
 app.use(express.static(path.join(__dirname, "public")));
 
-// MongoDB Connection
+mongoose.set("bufferCommands", false);
 mongoose
-  .connect(process.env.MONGODB_URI)
+  .connect(process.env.MONGODB_URI, {
+    serverSelectionTimeoutMS: 10000, // 10s timeout
+  })
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => console.log("MongoDB Connection Error: ", err));
 
