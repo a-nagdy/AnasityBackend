@@ -57,8 +57,9 @@ const createProduct = async (req, res) => {
     // Handle image upload if exists
     if (req.files && req.files.image) {
       try {
-        const imagePath = await uploadFile(req.files.image, "products");
-        productData.image = imagePath;
+        const uploadResult = await uploadFile(req.files.image, "products");
+        productData.image = uploadResult.url;
+        productData.imageId = uploadResult.publicId;
       } catch (uploadError) {
         return res.status(400).json({ message: uploadError.message });
       }
@@ -71,15 +72,17 @@ const createProduct = async (req, res) => {
           ? req.files.images
           : [req.files.images];
 
-        const uploadedPaths = await Promise.all(
+        const uploadResults = await Promise.all(
           imageFiles.map((file) => uploadFile(file, "products"))
         );
 
-        productData.images = uploadedPaths;
+        productData.images = uploadResults.map((result) => result.url);
+        productData.imageIds = uploadResults.map((result) => result.publicId);
 
         // If main image is missing but we have images, use the first one
-        if (!productData.image && uploadedPaths.length > 0) {
-          productData.image = uploadedPaths[0];
+        if (!productData.image && uploadResults.length > 0) {
+          productData.image = uploadResults[0].url;
+          productData.imageId = uploadResults[0].publicId;
         }
       } catch (uploadError) {
         return res.status(400).json({ message: uploadError.message });
@@ -176,12 +179,15 @@ const updateProduct = async (req, res) => {
     if (req.files && req.files.image) {
       try {
         // Delete old image if it exists
-        if (product.image) {
+        if (product.image && product.imageId) {
+          await deleteFile(product.image, product.imageId);
+        } else if (product.image) {
           await deleteFile(product.image);
         }
 
-        const imagePath = await uploadFile(req.files.image, "products");
-        updateData.image = imagePath;
+        const uploadResult = await uploadFile(req.files.image, "products");
+        updateData.image = uploadResult.url;
+        updateData.imageId = uploadResult.publicId;
       } catch (uploadError) {
         return res.status(400).json({ message: uploadError.message });
       }
@@ -194,9 +200,26 @@ const updateProduct = async (req, res) => {
           ? [updateData.removeImages]
           : updateData.removeImages;
 
+      const imageIdsToRemove = [];
+
+      // Build a map of image URLs to their IDs for faster lookup
+      const imageMap = {};
+      if (
+        product.images &&
+        product.imageIds &&
+        product.images.length === product.imageIds.length
+      ) {
+        for (let i = 0; i < product.images.length; i++) {
+          imageMap[product.images[i]] = product.imageIds[i];
+        }
+      }
+
       // Delete the files
-      for (const imgPath of imagesToRemove) {
-        await deleteFile(imgPath);
+      for (let i = 0; i < imagesToRemove.length; i++) {
+        const imgPath = imagesToRemove[i];
+        const imgId = imageMap[imgPath];
+        await deleteFile(imgPath, imgId);
+        if (imgId) imageIdsToRemove.push(imgId);
       }
 
       // Update images array
@@ -204,6 +227,13 @@ const updateProduct = async (req, res) => {
         updateData.images = product.images.filter(
           (img) => !imagesToRemove.includes(img)
         );
+
+        // Also update imageIds array if available
+        if (product.imageIds && product.imageIds.length > 0) {
+          updateData.imageIds = product.imageIds.filter(
+            (id) => !imageIdsToRemove.includes(id)
+          );
+        }
       }
 
       // Delete this field so it doesn't get saved to DB
@@ -217,23 +247,26 @@ const updateProduct = async (req, res) => {
           ? req.files.images
           : [req.files.images];
 
-        const uploadedPaths = await Promise.all(
+        const uploadResults = await Promise.all(
           imageFiles.map((file) => uploadFile(file, "products"))
         );
 
         // Combine with existing images if not explicitly removed
         updateData.images = [
           ...(updateData.images || product.images || []),
-          ...uploadedPaths,
+          ...uploadResults.map((result) => result.url),
+        ];
+
+        // Combine with existing imageIds if not explicitly removed
+        updateData.imageIds = [
+          ...(updateData.imageIds || product.imageIds || []),
+          ...uploadResults.map((result) => result.publicId),
         ];
 
         // If main image is missing but we have images, use the first one
-        if (
-          !updateData.image &&
-          !product.image &&
-          updateData.images.length > 0
-        ) {
-          updateData.image = updateData.images[0];
+        if (!updateData.image && !product.image && uploadResults.length > 0) {
+          updateData.image = uploadResults[0].url;
+          updateData.imageId = uploadResults[0].publicId;
         }
       } catch (uploadError) {
         return res.status(400).json({ message: uploadError.message });
@@ -308,12 +341,15 @@ const deleteProduct = async (req, res) => {
 
     // Delete associated images
     if (product.image) {
-      await deleteFile(product.image);
+      await deleteFile(product.image, product.imageId);
     }
 
     if (product.images && product.images.length > 0) {
-      for (const imgPath of product.images) {
-        await deleteFile(imgPath);
+      // Delete additional images
+      for (let i = 0; i < product.images.length; i++) {
+        const imgPath = product.images[i];
+        const imgId = product.imageIds?.[i] || null;
+        await deleteFile(imgPath, imgId);
       }
     }
 

@@ -47,7 +47,14 @@ const productSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    images: [String],
+    image: {
+      type: String, // URL of the image
+    },
+    imageId: {
+      type: String, // Cloudinary public_id for main image
+    },
+    images: [String], // URLs of additional images
+    imageIds: [String], // Cloudinary public_ids for additional images
     shipping: {
       type: Boolean,
       default: true,
