@@ -143,15 +143,24 @@ const paymentWebhook = async (req, res) => {
   res.status(200).json({ received: true });
 
   try {
-    // Determine payment processor based on headers, payload, or query parameters
+    console.log("Webhook headers:", JSON.stringify(req.headers, null, 2));
+    console.log("Webhook body:", JSON.stringify(req.body, null, 2));
+    console.log("Webhook query:", JSON.stringify(req.query, null, 2));
+
+    // Improved PayMob detection - check for multiple indicators
     const isPaymob =
       req.headers["x-paymob-signature"] ||
       (req.body && req.body.source && req.body.source === "paymob") ||
+      (req.body && req.body.type === "TRANSACTION") ||
+      (req.body && req.body.obj && req.body.obj.order) ||
       (req.query && req.query.success !== undefined && req.query.amount_cents);
 
     // Get data from either body or query parameters
-    const paymentData =
-      isPaymob && Object.keys(req.query).length > 0 ? req.query : req.body;
+    let paymentData = isPaymob
+      ? Object.keys(req.query).length > 0
+        ? req.query
+        : req.body
+      : req.body;
 
     // Log webhook receipt
     console.log(
@@ -166,31 +175,59 @@ const paymentWebhook = async (req, res) => {
     if (isPaymob) {
       // Handle Paymob webhook
       const callbackData = paymentData;
+      let orderId, isSuccessful;
 
-      // Extract order ID directly from query parameter if available
-      const directOrderId = callbackData.id || callbackData.order;
+      // Extract order ID from different possible locations
+      if (
+        callbackData.obj &&
+        callbackData.obj.order &&
+        callbackData.obj.order.id
+      ) {
+        // New format from PayMob
+        orderId = callbackData.obj.order.id.toString();
+        isSuccessful =
+          callbackData.obj.success === true &&
+          callbackData.obj.is_voided !== true &&
+          callbackData.obj.is_refunded !== true;
 
-      // Process the payment result from Paymob
-      const paymentResult = paymob.processPaymentCallback(callbackData);
+        console.log(
+          `Found order ID in obj.order.id: ${orderId}, success: ${isSuccessful}`
+        );
+      } else {
+        // Extract order ID directly from query parameter or other locations
+        orderId = callbackData.id || callbackData.order;
 
-      // Get the order ID from extras or directly from the query/body
-      const orderId = paymentResult.orderId || directOrderId;
+        // Process the payment result from Paymob utility
+        const paymentResult = paymob.processPaymentCallback(callbackData);
 
-      console.log(`Processing payment for order: ${orderId}`);
+        // Fallback to orderId from paymentResult if available
+        if (!orderId && paymentResult && paymentResult.orderId) {
+          orderId = paymentResult.orderId;
+        }
+
+        // Check if payment is successful based on query parameters or processed result
+        isSuccessful =
+          (callbackData.success === "true" || callbackData.success === true) &&
+          (callbackData.is_void === "false" ||
+            callbackData.is_void === false) &&
+          (callbackData.error_occured === "false" ||
+            callbackData.error_occured === false);
+
+        if (paymentResult && paymentResult.status === "confirmed") {
+          isSuccessful = true;
+        }
+      }
+
+      console.log(
+        `Processing payment for order: ${orderId}, isSuccessful: ${isSuccessful}`
+      );
 
       if (!orderId) {
         console.error("No order ID found in Paymob webhook data");
         return; // Already sent 200 response
       }
 
-      // Check if payment is successful based on query parameters or processed result
-      const isSuccessful =
-        (callbackData.success === "true" || callbackData.success === true) &&
-        (callbackData.is_void === "false" || callbackData.is_void === false) &&
-        (callbackData.error_occured === "false" ||
-          callbackData.error_occured === false);
-
-      if (orderId && (paymentResult.status === "confirmed" || isSuccessful)) {
+      if (orderId && isSuccessful) {
         // Start a session for transaction
         const session = await mongoose.startSession();
         session.startTransaction();
@@ -200,10 +237,25 @@ const paymentWebhook = async (req, res) => {
           const order = await Order.findById(orderId).session(session);
 
           if (!order) {
-            await session.abortTransaction();
-            session.endSession();
-            console.error(`Order not found: ${orderId}`);
-            return; // Already sent 200 response
+            // Try to find by other formats - PayMob might send order ID in a different format
+            const alternativeOrder = await Order.findOne({
+              $or: [
+                { "paymentResult.id": orderId },
+                { "paymentResult.id": orderId.toString() },
+              ],
+            }).session(session);
+
+            if (!alternativeOrder) {
+              await session.abortTransaction();
+              session.endSession();
+              console.error(`Order not found: ${orderId}`);
+              return; // Already sent 200 response
+            }
+
+            console.log(
+              `Found order using alternative search: ${alternativeOrder._id}`
+            );
+            order = alternativeOrder;
           }
 
           // If order is already paid, avoid duplicate processing
@@ -221,9 +273,9 @@ const paymentWebhook = async (req, res) => {
           order.paidAt = Date.now();
           order.status = "Processing";
           order.paymentResult = {
-            id: paymentResult.id || callbackData.id || callbackData.order,
+            id: orderId,
             status: "confirmed",
-            update_time: paymentResult.update_time || new Date().toISOString(),
+            update_time: new Date().toISOString(),
           };
 
           // Save the order
@@ -266,13 +318,7 @@ const paymentWebhook = async (req, res) => {
           session.endSession();
           console.error("Error processing payment success:", error);
         }
-      } else if (
-        orderId &&
-        (["failed", "refunded", "voided"].includes(paymentResult.status) ||
-          callbackData.is_voided === true ||
-          callbackData.is_refunded === true ||
-          callbackData.error_occured === true)
-      ) {
+      } else if (orderId && !isSuccessful) {
         // Handle failed/refunded payments
         console.log(
           `Order ${orderId} payment failed or refunded, updating status`
@@ -283,19 +329,23 @@ const paymentWebhook = async (req, res) => {
           const order = await Order.findById(orderId);
           if (order) {
             let statusUpdate = "Cancelled";
-            if (callbackData.is_refunded === true) statusUpdate = "Refunded";
+
+            if (callbackData.obj && callbackData.obj.is_refunded === true)
+              statusUpdate = "Refunded";
+            else if (callbackData.is_refunded === true)
+              statusUpdate = "Refunded";
 
             order.status = statusUpdate;
-
             order.paymentResult = {
-              id: paymentResult.id || callbackData.id || "",
+              id: orderId,
               status: "failed",
-              update_time:
-                paymentResult.update_time || new Date().toISOString(),
+              update_time: new Date().toISOString(),
             };
 
             await order.save();
             console.log(`Order ${orderId} status updated to ${order.status}`);
+          } else {
+            console.error(`Order not found: ${orderId}`);
           }
         } catch (error) {
           console.error(`Error updating order ${orderId} status:`, error);
