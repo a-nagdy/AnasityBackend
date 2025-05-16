@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { determineProductStatus } from "../../utils/productStatus.js";
 
 const productSchema = new mongoose.Schema(
   {
@@ -26,6 +27,11 @@ const productSchema = new mongoose.Schema(
     discountPrice: {
       type: Number,
       min: [0, "Discount price must be positive"],
+    },
+    status: {
+      type: String,
+      enum: ["in stock", "out of stock", "draft", "low stock"],
+      default: "in stock",
     },
     category: {
       type: mongoose.Schema.Types.ObjectId,
@@ -75,6 +81,15 @@ const productSchema = new mongoose.Schema(
 
 // Create index for better search performance
 productSchema.index({ name: "text", description: "text" });
+
+// Pre-save hook to automatically update status based on quantity and active state
+productSchema.pre("save", function (next) {
+  // Only update status if quantity or active state has changed
+  if (this.isModified("quantity") || this.isModified("active")) {
+    this.status = determineProductStatus(this.quantity, this.active);
+  }
+  next();
+});
 
 const Product = mongoose.model("Product", productSchema);
 

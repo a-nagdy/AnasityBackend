@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import morgan from "morgan";
 import path from "path";
 import { fileURLToPath } from "url";
+import scheduleProductStatusUpdates from "./cron/updateProductStatus.js";
 import addressRoutes from "./routes/Address/Address.js";
 import authRoutes from "./routes/Auth/Auth.js";
 import cartRoutes from "./routes/Cart/Cart.js";
@@ -100,7 +101,13 @@ if (process.env.NODE_ENV !== "production") {
         process.env.NODE_ENV || "development"
       } mode`
     );
+
+    // Start cron jobs
+    scheduleProductStatusUpdates();
   });
+} else {
+  // For production, initialize cron jobs without waiting for server to start
+  scheduleProductStatusUpdates();
 }
 
 export default app;
