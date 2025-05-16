@@ -1,4 +1,5 @@
 // import Stripe from "stripe";
+import mongoose from "mongoose";
 import Cart from "../../models/Cart/Cart.js";
 import Order from "../../models/Order/Order.js";
 import Product from "../../models/Product/Product.js";
@@ -265,11 +266,29 @@ const paymentWebhook = async (req, res) => {
         // Clear the user's cart if they are logged in
         if (order.user) {
           try {
-            const cart = await Cart.findOneAndDelete({ user: order.user });
-            console.log(
-              `Cart removed for user ${order.user}:`,
-              cart ? "success" : "no cart found"
-            );
+            console.log(`Attempting to clear cart for user: ${order.user}`);
+
+            // Use deleteOne directly rather than findOneAndDelete
+            const deleteResult = await Cart.deleteOne({ user: order.user });
+
+            if (deleteResult && deleteResult.deletedCount > 0) {
+              console.log(`Successfully deleted cart for user ${order.user}`);
+            } else {
+              console.log(`No cart found to delete for user ${order.user}`);
+
+              // Double-check if the cart still exists
+              const cartCheck = await Cart.findOne({ user: order.user });
+              if (cartCheck) {
+                console.log(
+                  `Cart still exists for user ${order.user}, trying direct deletion`
+                );
+                // Force delete with native MongoDB driver as a fallback
+                await mongoose.connection
+                  .collection("carts")
+                  .deleteOne({ user: mongoose.Types.ObjectId(order.user) });
+                console.log(`Forced cart deletion for user ${order.user}`);
+              }
+            }
           } catch (cartError) {
             console.error(
               `Error removing cart for user ${order.user}:`,
