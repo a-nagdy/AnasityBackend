@@ -215,8 +215,7 @@ const createOrder = async (req, res) => {
       { session }
     );
 
-    // Note: We'll only clear the cart after successful payment
-    // But we won't do that here yet
+    await Cart.deleteOne({ user: req.user.id });
 
     await session.commitTransaction();
     session.endSession();
