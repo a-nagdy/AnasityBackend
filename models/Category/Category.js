@@ -22,6 +22,9 @@ const categorySchema = new mongoose.Schema(
     image: {
       type: String,
     },
+    imageId: {
+      type: String, // Cloudinary public_id
+    },
     parent: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
