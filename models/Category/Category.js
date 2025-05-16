@@ -39,8 +39,17 @@ const categorySchema = new mongoose.Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
+    strict: true,
   }
 );
+
+// Ensure no sequentialId is saved
+categorySchema.pre("save", function (next) {
+  if (this.sequentialId !== undefined) {
+    delete this.sequentialId;
+  }
+  next();
+});
 
 // Virtual for child categories
 categorySchema.virtual("children", {

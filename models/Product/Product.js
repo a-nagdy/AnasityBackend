@@ -83,6 +83,7 @@ const productSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    strict: true,
   }
 );
 
@@ -95,6 +96,12 @@ productSchema.pre("save", function (next) {
   if (this.isModified("quantity") || this.isModified("active")) {
     this.status = determineProductStatus(this.quantity, this.active);
   }
+
+  // Ensure no sequentialId
+  if (this.sequentialId !== undefined) {
+    delete this.sequentialId;
+  }
+
   next();
 });
 

@@ -73,6 +73,7 @@ const userSchema = new mongoose.Schema(
       },
     },
     toObject: { virtuals: true },
+    strict: true,
   }
 );
 
@@ -109,6 +110,11 @@ userSchema.virtual("defaultBillingAddress", {
 
 // Password hashing middleware
 userSchema.pre("save", async function (next) {
+  // Remove sequentialId if it exists
+  if (this.sequentialId !== undefined) {
+    delete this.sequentialId;
+  }
+
   // Only hash the password if it's modified or new
   if (!this.isModified("password")) return next();
 

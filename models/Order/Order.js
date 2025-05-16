@@ -123,6 +123,7 @@ const orderSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    strict: true,
   }
 );
 
@@ -131,13 +132,22 @@ orderSchema.index({ user: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
 orderSchema.index({ "paymentResult.id": 1 });
 
-// Calculate the total amount for the order
+// Pre-save middleware for order
 orderSchema.pre("save", function (next) {
-  // If total is already set, don't recalculate
-  if (this.total > 0) return next();
+  // Remove sequentialId if it exists
+  if (this.sequentialId !== undefined) {
+    delete this.sequentialId;
+  }
 
-  this.total =
-    this.itemsPrice + this.taxPrice + this.shippingPrice - this.discountAmount;
+  // Calculate the total amount for the order if not already set
+  if (this.total <= 0) {
+    this.total =
+      this.itemsPrice +
+      this.taxPrice +
+      this.shippingPrice -
+      this.discountAmount;
+  }
+
   next();
 });
 
