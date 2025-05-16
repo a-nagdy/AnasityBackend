@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Cart from "../../models/Cart/Cart.js";
 import Order from "../../models/Order/Order.js";
 import Product from "../../models/Product/Product.js";
+import { updateOrder } from "../Orders/Orders.js";
 
 // Initialize Stripe
 // const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -223,16 +224,16 @@ const paymentWebhook = async (req, res) => {
           session.endSession();
           return; // Already sent 200 response
         }
-
-        // Update order payment status
-        order.isPaid = true;
-        order.paidAt = Date.now();
-        order.status = "Processing";
-        order.paymentResult = {
-          id: req.query.id || orderId,
-          status: "confirmed",
-          update_time: new Date().toISOString(),
-        };
+        updateOrder(orderId, {
+          isPaid: true,
+          paidAt: Date.now(),
+          status: "Processing",
+          paymentResult: {
+            id: req.query.id || orderId,
+            status: "confirmed",
+            update_time: new Date().toISOString(),
+          },
+        });
 
         // Save the order
         await order.save({ session });
