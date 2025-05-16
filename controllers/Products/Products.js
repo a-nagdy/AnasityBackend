@@ -5,7 +5,12 @@ import { deleteFile, uploadFile } from "../../utils/fileUpload.js";
 // Get all products
 const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find();
+    const products = await Product.find().populate("category", "name");
+
+    if (!products || products.length === 0) {
+      return res.status(404).json({ message: "No products found" });
+    }
+
     res.status(200).json(products);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -20,7 +25,7 @@ const getProductById = async (req, res) => {
   }
 
   try {
-    const product = await Product.findById(id);
+    const product = await Product.findById(id).populate("category", "name");
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
