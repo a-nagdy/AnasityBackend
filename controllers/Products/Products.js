@@ -5,13 +5,26 @@ import { deleteFile, uploadFile } from "../../utils/fileUpload.js";
 // Get all products
 const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find().populate("category", "name");
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const products = await Product.find()
+      .populate("category", "name")
+      .skip(skip)
+      .limit(limit);
 
     if (!products || products.length === 0) {
       return res.status(404).json({ message: "No products found" });
     }
 
-    res.status(200).json(products);
+    const pagination = {
+      currentPage: page,
+      totalPages: Math.ceil(products.length / limit),
+      totalProducts: products.length,
+    };
+
+    res.status(200).json({ products, pagination });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
