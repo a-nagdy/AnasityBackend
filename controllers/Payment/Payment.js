@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 import Cart from "../../models/Cart/Cart.js";
 import Order from "../../models/Order/Order.js";
 import Product from "../../models/Product/Product.js";
-import { updateOrder } from "../Orders/Orders.js";
 
 // Initialize Stripe
 // const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -224,18 +223,18 @@ const paymentWebhook = async (req, res) => {
           session.endSession();
           return; // Already sent 200 response
         }
-        updateOrder(orderId, {
-          isPaid: true,
-          paidAt: Date.now(),
-          status: "Processing",
-          paymentResult: {
-            id: req.query.id || orderId,
-            status: "confirmed",
-            update_time: new Date().toISOString(),
-          },
-        });
 
-        // Save the order
+        // Update order properties directly (don't use updateOrder here as it doesn't work with transactions)
+        order.isPaid = true;
+        order.paidAt = Date.now();
+        order.status = "Processing";
+        order.paymentResult = {
+          id: req.query.id || orderId,
+          status: "confirmed",
+          update_time: new Date().toISOString(),
+        };
+
+        // Save the order within the transaction
         await order.save({ session });
         console.log(`Order ${orderId} updated with payment info`);
 
@@ -243,9 +242,14 @@ const paymentWebhook = async (req, res) => {
         for (const item of order.items) {
           const product = await Product.findById(item.product).session(session);
           if (product) {
+            console.log(
+              `Updating inventory for product ${product._id}: Quantity ${product.quantity} - ${item.quantity}`
+            );
             product.quantity = Math.max(0, product.quantity - item.quantity);
             product.sold = (product.sold || 0) + item.quantity;
             await product.save({ session });
+          } else {
+            console.log(`Product not found: ${item.product}`);
           }
         }
 
@@ -258,6 +262,18 @@ const paymentWebhook = async (req, res) => {
         await session.commitTransaction();
         session.endSession();
         console.log(`Order ${orderId} processed and marked as paid`);
+
+        // After successful transaction, trigger additional order update if needed
+        // This is outside the transaction but provides additional flexibility
+        try {
+          // Use this to trigger any additional logic in the updateOrder function
+          await Order.findByIdAndUpdate(order._id, { paymentProcessed: true });
+        } catch (updateError) {
+          console.log(
+            "Non-critical error in post-payment update:",
+            updateError.message
+          );
+        }
       } catch (error) {
         // If any error occurs, abort the transaction
         await session.abortTransaction();
