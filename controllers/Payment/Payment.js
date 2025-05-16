@@ -180,7 +180,32 @@ const paymentWebhook = async (req, res) => {
       let orderId, isSuccessful;
       let paymentResult;
 
+      // NEW: Extract orderId from nested payment_key_claims.extra.orderId for new format
       if (
+        callbackData.obj &&
+        callbackData.obj.payment_key_claims &&
+        callbackData.obj.payment_key_claims.extra &&
+        callbackData.obj.payment_key_claims.extra.orderId
+      ) {
+        orderId = callbackData.obj.payment_key_claims.extra.orderId;
+        isSuccessful =
+          callbackData.obj.success === true &&
+          callbackData.obj.is_voided !== true &&
+          callbackData.obj.is_refunded !== true;
+
+        console.log(
+          `Found order ID in payment_key_claims.extra.orderId: ${orderId}, success: ${isSuccessful}`
+        );
+
+        // Set a minimal payment result structure
+        paymentResult = {
+          id: callbackData.obj.id || "",
+          status: isSuccessful ? "confirmed" : "failed",
+          update_time: new Date().toISOString(),
+        };
+      }
+      // Original format detection
+      else if (
         callbackData.obj &&
         callbackData.obj.order &&
         callbackData.obj.order.id
@@ -233,7 +258,7 @@ const paymentWebhook = async (req, res) => {
 
         try {
           // Find the order
-          const order = await Order.findById(orderId).session(session);
+          let order = await Order.findById(orderId).session(session);
 
           if (!order) {
             // Try to find by other formats - PayMob might send order ID in a different format
@@ -254,7 +279,7 @@ const paymentWebhook = async (req, res) => {
             console.log(
               `Found order using alternative search: ${alternativeOrder._id}`
             );
-            const order = alternativeOrder;
+            order = alternativeOrder;
           }
 
           // If order is already paid, avoid duplicate processing
