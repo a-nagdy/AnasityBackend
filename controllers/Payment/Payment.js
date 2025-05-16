@@ -200,8 +200,6 @@ const paymentWebhook = async (req, res) => {
         // Process the payment result from Paymob utility
         const paymentResult = paymob.processPaymentCallback(callbackData);
 
-        console.log("paymentResult", paymentResult);
-
         // Fallback to orderId from paymentResult if available
         if (!orderId && paymentResult && paymentResult.orderId) {
           orderId = paymentResult.orderId;
