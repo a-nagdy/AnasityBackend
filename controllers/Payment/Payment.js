@@ -1,5 +1,4 @@
 // import Stripe from "stripe";
-import mongoose from "mongoose";
 import Cart from "../../models/Cart/Cart.js";
 import Order from "../../models/Order/Order.js";
 import Product from "../../models/Product/Product.js";
@@ -185,99 +184,102 @@ const paymentWebhook = async (req, res) => {
     );
 
     if (isPaymobSuccess && orderId) {
-      // Start a transaction
-      const session = await mongoose.startSession();
-      session.startTransaction();
-
       try {
-        // Find the order by MongoDB ID or try to find it using the PayMob order number
-        let order = await Order.findById(orderId).session(session);
+        console.log("Starting payment processing for order:", orderId);
 
-        // If not found directly, try looking for the order in the payment results
-        if (!order) {
-          // Try alternative lookup methods
-          const alternativeOrder = await Order.findOne({
-            $or: [
-              { "paymentResult.id": orderId.toString() },
-              { "checkoutData.paymobOrderId": orderId.toString() },
-            ],
-          }).session(session);
-
-          if (alternativeOrder) {
-            order = alternativeOrder;
-            console.log(`Found order using alternative ID: ${order._id}`);
-          }
-        }
+        // DIRECT UPDATE APPROACH - No transaction
+        // Find the order without a session
+        const order = await Order.findById(orderId);
 
         if (!order) {
           console.error(`Order not found: ${orderId}`);
-          await session.abortTransaction();
-          session.endSession();
-          return; // Already sent 200 response
+          return;
         }
+
+        console.log(
+          `Found order: ${order._id}, current status: ${order.status}, isPaid: ${order.isPaid}`
+        );
 
         // If order is already paid, avoid duplicate processing
         if (order.isPaid) {
           console.log(`Order ${orderId} is already paid, skipping processing`);
-          await session.abortTransaction();
-          session.endSession();
-          return; // Already sent 200 response
+          return;
         }
 
-        // Update order properties directly (don't use updateOrder here as it doesn't work with transactions)
-        order.isPaid = true;
-        order.paidAt = Date.now();
-        order.status = "Processing";
-        order.paymentResult = {
-          id: req.query.id || orderId,
+        // Update order payment status directly
+        const paymentResult = {
+          id: req.body?.obj?.id || req.query.id || orderId,
           status: "confirmed",
           update_time: new Date().toISOString(),
         };
 
-        // Save the order within the transaction
-        await order.save({ session });
-        console.log(`Order ${orderId} updated with payment info`);
+        console.log("Updating order with payment info:", paymentResult);
 
-        // Update inventory for each product
+        // Use findByIdAndUpdate for atomic update
+        const updatedOrder = await Order.findByIdAndUpdate(
+          orderId,
+          {
+            isPaid: true,
+            paidAt: Date.now(),
+            status: "Processing",
+            paymentResult: paymentResult,
+          },
+          { new: true }
+        );
+
+        if (!updatedOrder) {
+          console.error("Order update failed - order not found");
+          return;
+        }
+
+        console.log(
+          `Order ${orderId} updated successfully. Status: ${updatedOrder.status}, isPaid: ${updatedOrder.isPaid}`
+        );
+
+        // Update inventory for each product one by one
         for (const item of order.items) {
-          const product = await Product.findById(item.product).session(session);
-          if (product) {
+          try {
             console.log(
-              `Updating inventory for product ${product._id}: Quantity ${product.quantity} - ${item.quantity}`
+              `Updating inventory for product ${item.product}, quantity: ${item.quantity}`
             );
-            product.quantity = Math.max(0, product.quantity - item.quantity);
-            product.sold = (product.sold || 0) + item.quantity;
-            await product.save({ session });
-          } else {
-            console.log(`Product not found: ${item.product}`);
+
+            const product = await Product.findById(item.product);
+            if (product) {
+              product.quantity = Math.max(0, product.quantity - item.quantity);
+              product.sold = (product.sold || 0) + item.quantity;
+              await product.save();
+              console.log(
+                `Product ${product._id} updated. New quantity: ${product.quantity}, sold: ${product.sold}`
+              );
+            } else {
+              console.log(`Product not found: ${item.product}`);
+            }
+          } catch (productError) {
+            console.error(
+              `Error updating product ${item.product}:`,
+              productError
+            );
           }
         }
 
         // Clear the user's cart if they are logged in
         if (order.user) {
-          await Cart.findOneAndDelete({ user: order.user }, { session });
+          try {
+            const cart = await Cart.findOneAndDelete({ user: order.user });
+            console.log(
+              `Cart removed for user ${order.user}:`,
+              cart ? "success" : "no cart found"
+            );
+          } catch (cartError) {
+            console.error(
+              `Error removing cart for user ${order.user}:`,
+              cartError
+            );
+          }
         }
 
-        // Commit the transaction
-        await session.commitTransaction();
-        session.endSession();
-        console.log(`Order ${orderId} processed and marked as paid`);
-
-        // After successful transaction, trigger additional order update if needed
-        // This is outside the transaction but provides additional flexibility
-        try {
-          // Use this to trigger any additional logic in the updateOrder function
-          await Order.findByIdAndUpdate(order._id, { paymentProcessed: true });
-        } catch (updateError) {
-          console.log(
-            "Non-critical error in post-payment update:",
-            updateError.message
-          );
-        }
+        console.log(`Order ${orderId} fully processed and marked as paid`);
       } catch (error) {
-        // If any error occurs, abort the transaction
-        await session.abortTransaction();
-        session.endSession();
         console.error("Error processing payment:", error);
       }
     } else if (orderId) {
