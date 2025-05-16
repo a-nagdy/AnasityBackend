@@ -16,7 +16,6 @@ import ordersRoutes from "./routes/Orders/Orders.js";
 import paymentRoutes from "./routes/Payment/Payment.js";
 import productRoutes from "./routes/Products/Products.js";
 import shippingRoutes from "./routes/Shipping/Shipping.js";
-
 // Load environment variables
 dotenv.config();
 
@@ -24,10 +23,18 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors());
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+app.use(
+  cors({
+    origin: "*", // Allow all origins
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 app.use(cookieParser());
 app.use(fileUpload());
 
